@@ -1,0 +1,14 @@
+[local]
+localhost ansible_connection=local ansible_python_interpreter=python
+
+[nginx]
+
+[syslog_splunk]
+
+[syslog_tester]
+
+[standalone]
+
+[syslog:children]
+syslog_splunk
+syslog_tester

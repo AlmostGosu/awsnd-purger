@@ -1,0 +1,7 @@
+---
+# vars file for awsnd-cleanup
+
+awsnd_base_image: ami-46c1b650
+awsnd_base_region: us-east-1
+awsnd_guid: JYjsl8l@vuK!MScnDs2d$ywgTh42kam # This variable is used to tag instances to be removed during the purge
+awsnd_circular: TRUE

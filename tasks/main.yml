@@ -1,0 +1,3 @@
+---
+# tasks file for awsnd-cleanup
+  - import_tasks: purge_awsnd.yml

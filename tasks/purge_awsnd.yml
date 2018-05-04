@@ -1,0 +1,176 @@
+---
+##################
+# Get the facts! #
+##################
+
+  - ec2_vpc_net_facts:
+    filters:
+      "tag:awsnd_guid": "{{ awsnd_guid }}"
+      "tag:cidr": "{{ awsnd_vpc_cidr }}"
+    register: awsnd_vpc_facts
+  - debug:
+      var: awsnd_vpc_facts
+      verbosity: 2
+
+  - name: create direct reference variables
+    set_fact:
+      awsnd_cleanup_cidr_block: "{{ item.cidr_block }}"
+      awsnd_cleanup_vpc_id: "{{ item.id }}"
+    when: '"{{ awsnd_guid }}" in "{{ item.tags }}"'
+    with_items: "{{ awsnd_vpc_facts.vpcs }}"
+
+
+#####################
+# Instance  Cleanup #
+#####################
+
+  - name: reduce instance count to 0 -- This might take a minute...
+    ec2:
+      image: "{{ awsnd_base_image }}"
+      region: "{{ awsnd_base_region }}"
+      exact_count: 0
+      count_tag:
+        cleanup_guid: "{{ awsnd_guid }}"
+      wait: true
+    ignore_errors: yes
+
+  - ec2_instance_facts:
+    filters:
+      "tag:awsnd_guid": "{{ awsnd_guid }}"
+    register: awsnd_instance_facts
+  - debug:
+      var: awsnd_instance_facts
+      verbosity: 2
+
+###############
+# IGW CLEANUP #
+###############
+
+  # - ec2_vpc_igw_facts:
+  #   region: "{{ awsnd_base_region }}"
+  #   filters:
+  #       "tag:awsnd_guid": "{{ awsnd_guid }}"
+  #   register: awsnd_igw_facts
+  # - debug:
+  #     var: awsnd_igw_facts
+  #     verbosity: 2
+
+  - name: Remove created igw
+    ec2_vpc_igw:
+      region: "{{ awsnd_base_region }}"
+      vpc_id: "{{ item.id }}"
+      state: absent
+    when: '"{{ awsnd_guid }}" in "{{ item.tags }}"'
+    with_items: "{{ awsnd_vpc_facts.vpcs }}"
+
+##########################
+# Security Group Cleanup #
+##########################
+
+  - ec2_group_facts:
+      region: "{{ awsnd_base_region }}"
+    filters:
+        "tag:awsnd_guid": "{{ awsnd_guid }}"
+    register: awsnd_ec2_group_facts
+  - debug:
+      var: awsnd_ec2_group_facts
+      verbosity: 2
+
+  - name: Delete security groups
+    ec2_group:
+        region: "{{ awsnd_base_region }}"
+        vpc_id: "{{ item.vpc_id }}"
+        group_id: "{{ item.group_id}}"
+        state: absent
+    when: '"{{ awsnd_guid }}" in "{{ item.tags }}"'
+    with_items: "{{ awsnd_ec2_group_facts.security_groups }}"
+
+################
+# NACL Cleanup #
+################
+
+  - ec2_vpc_nacl_facts:
+      region: "{{ awsnd_base_region }}"
+    filters:
+        "tag:awsnd_guid": "{{ awsnd_guid }}"
+    register: awsnd_ec2_vpc_nacl_facts
+  - debug:
+      var: awsnd_ec2_vpc_nacl_facts
+      verbosity: 2
+
+  - name: "Delete nacl and subnet associations"
+    ec2_vpc_nacl:
+      vpc_id: "{{ awsnd_cleanup_vpc_id}}"
+      nacl_id: "{{ item.nacl_id }}"
+      state: absent
+    when: '"{{ awsnd_cleanup_vpc_id | default([]) }}" in "{{ item.vpc_id }}" and "false" in "{{ item.is_default}}"'
+    with_items: "{{ awsnd_ec2_vpc_nacl_facts.nacls }}"
+
+##################
+# Subnet Cleanup #
+##################
+
+  - ec2_vpc_subnet_facts:
+      region: "{{ awsnd_base_region }}"
+    filters:
+        "tag:awsnd_guid": "{{ awsnd_guid }}"
+    register: awsnd_ec2_vpc_subnet_facts
+  - debug:
+      var: awsnd_ec2_vpc_subnet_facts
+      verbosity: 2
+
+  - name: clean up subnets
+    ec2_vpc_subnet:
+      state: absent
+      cidr: "{{ item.cidr_block }}"
+      vpc_id: "{{ item.vpc_id }}"
+      region: "{{ awsnd_base_region }}"
+    when: '"{{ awsnd_guid }}" in "{{ item.tags }}"'
+    with_items: "{{ awsnd_ec2_vpc_subnet_facts.subnets }}"
+
+#######################
+# Route Table Cleanup #
+#######################
+
+  - ec2_vpc_route_table_facts:
+      region: "{{ awsnd_base_region }}"
+    filters:
+        "tag:awsnd_guid": "{{ awsnd_guid }}"
+    register: awsnd_ec2_route_table_facts
+  - debug:
+      var: awsnd_ec2_route_table_facts
+      verbosity: 2
+
+  - name: clean up vpc route table
+    ec2_vpc_route_table:
+      vpc_id: "{{ item.vpc_id }}"
+      region: "{{ awsnd_base_region }}"
+      route_table_id: "{{ item.id }}"
+      lookup: id
+      state: absent
+    when: '"{{ awsnd_guid }}" in "{{ item.tags }}"'
+    with_items: "{{ awsnd_ec2_route_table_facts.route_tables }}"
+
+###############
+# VPC Cleanup #
+###############
+
+  - name: Clean up VPC & related objects
+    ec2_vpc_net:
+      state: absent
+      cidr_block: "{{ item.cidr_block }}"
+      name: "{{ item.tags.Name }}"
+      region: "{{ awsnd_base_region }}"
+    when: '"{{ awsnd_guid }}" in "{{ item.tags }}"'
+    with_items: "{{ awsnd_vpc_facts.vpcs }}"
+
+
+##########################
+# Restore inventory file #
+##########################
+
+  - name: restore inventory file
+    template:
+      dest: "{{ inventory_file }}"
+      src: awsnd-inventory.j2
+    when: awsnd_circular
