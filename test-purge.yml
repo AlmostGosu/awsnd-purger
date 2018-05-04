@@ -5,11 +5,11 @@
     tasks:
     - name: Include only files matching vars.yml
       include_vars:
-        file: 'roles/awsnd-purge/vars/vars.yml'
+        file: 'vars/vars.yml'
 
   - name: testing purge of awsnd
     hosts: local
     connection: local
     gather_facts: False
     roles:
-      - awsnd-purge
+      - awsnd-purger
